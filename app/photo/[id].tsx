@@ -16,28 +16,33 @@ export default function PhotoViewer() {
     (async () => {
       if (!id) return;
       try {
+        // sometimes including location metadata requires ACCESS_MEDIA_LOCATION on Android
         const info = await MediaLibrary.getAssetInfoAsync(id as string);
         setAsset(info);
-      } catch (e) {
-        console.error(e);
+      } catch (e: any) {
+        console.error('Failed to get asset info', e);
+        if (String(e).includes('ExifInterface') || String(e).includes('ACCESS_MEDIA_LOCATION')) {
+          Alert.alert(
+            'Permission required',
+            'Accessing GPS / EXIF location requires ACCESS_MEDIA_LOCATION on Android. For full functionality make a development build with that permission.',
+          );
+        }
       }
     })();
   }, [id]);
 
-  if (!asset) return <View />;
+  if (!asset) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
 
   const rotate = async () => {
     const result = await ImageManipulator.manipulateAsync(asset.uri, [{ rotate: 90 }], { compress: 0.9 });
-    // save as new asset
     const created = await MediaLibrary.createAssetAsync(result.uri);
-    // optionally replace old asset or keep both
     Alert.alert('Rotated', 'Saved rotated copy.');
     setAsset(created);
   };
 
   const crop = async () => {
-    // simple square crop center example
-    const result = await ImageManipulator.manipulateAsync(asset.uri, [{ crop: { originX: 0, originY: 0, width: asset.width, height: asset.width } }], { compress: 0.9 });
+    const size = Math.min(asset.width ?? 1000, asset.height ?? 1000);
+    const result = await ImageManipulator.manipulateAsync(asset.uri, [{ crop: { originX: 0, originY: 0, width: size, height: size } }], { compress: 0.9 });
     const created = await MediaLibrary.createAssetAsync(result.uri);
     setAsset(created);
   };
@@ -72,5 +77,3 @@ const styles = StyleSheet.create({
   image: { flex: 1 },
   row: { flexDirection: 'row', justifyContent: 'space-around', padding: 12 },
 });
-// This component allows viewing, rotating, cropping, sharing, and deleting a photo asset.
-// It uses MediaLibrary for asset management and ImageManipulator for image editing.

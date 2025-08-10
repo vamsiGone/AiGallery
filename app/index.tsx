@@ -3,48 +3,61 @@ import { format } from 'date-fns';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
-import { SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import SettingsMenu from '../components/SettingsMenu';
 import { useMediaScanner } from '../hooks/useMediaScanner';
+import { chunk } from '../utils/chunk';
 
-type Section = {
-  title: string;
-  data: any[];
-};
+const NUM_COLUMNS = 3;
+const WINDOW_WIDTH = Dimensions.get('window').width;
 
 export default function Home() {
   const { assets, loading } = useMediaScanner();
   const router = useRouter();
 
-  const sections: Section[] = useMemo(() => {
-    const map = new Map<string, any[]>();
+  const sections = useMemo(() => {
+    // group by day (creationTime is seconds)
+    const map = new Map<number, any[]>();
     for (const a of assets) {
-      // asset.creationTime is seconds (MediaLibrary) -> convert to ms
-      const ts = (a.creationTime ?? Date.now()) * 1000;
-      const day = format(new Date(ts), 'yyyy-MM-dd');
-      if (!map.has(day)) map.set(day, []);
-      map.get(day)!.push(a);
+      const ts = a.creationTime ?? Date.now();
+      const startOfDay = new Date(ts).setHours(0, 0, 0, 0);
+
+      if (!map.has(startOfDay)) map.set(startOfDay, []);
+      map.get(startOfDay)!.push(a);
     }
-    // convert to array with sorted keys (desc)
+    // sort keys desc (recent first)
     return Array.from(map.entries())
-      .sort((a, b) => (a[0] < b[0] ? 1 : -1))
-      .map(([title, data]) => ({ title, data }));
+      .sort((a, b) => (b[0] - a[0]))
+      .map(([titleTs, items]) => ({
+        titleTs,
+        title: format(new Date(titleTs), 'dd-MMM-yyyy'),
+        data: chunk(items, NUM_COLUMNS), // each row = array of assets
+      }));
   }, [assets]);
 
   return (
     <View style={{ flex: 1 }}>
+      <SettingsMenu />
       <SectionList
         sections={sections}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(itemRow, index) => itemRow.map((it: any) => it.id).join('_') + '_' + index}
         renderSectionHeader={({ section: { title } }) => (
           <View style={styles.header}><Text style={styles.headerText}>{title}</Text></View>
         )}
-        renderItem={({ item }) => (
-          <TouchableOpacity onPress={() => router.push(`/photo/${item.id}`)}>
-            <Image style={styles.thumb} source={{ uri: item.uri }} />
-          </TouchableOpacity>
+        renderItem={({ item: row }) => (
+          <View style={styles.row}>
+            {row.map((it: any) => (
+              <TouchableOpacity key={it.id} style={styles.cell} onPress={() => router.push(`/photo/${it.id}`)}>
+                <Image source={{ uri: it.uri }} style={styles.thumb} contentFit="cover" />
+              </TouchableOpacity>
+            ))}
+            {/* fill empty cells for alignment */}
+            {row.length < NUM_COLUMNS && Array.from({ length: NUM_COLUMNS - row.length }).map((_, i) => <View key={`empty-${i}`} style={styles.cell} />)}
+          </View>
         )}
         contentContainerStyle={{ padding: 8 }}
       />
+      {loading && <Text style={{ textAlign: 'center', padding: 8 }}>Loading...</Text>}
     </View>
   );
 }
@@ -52,6 +65,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   header: { paddingVertical: 8 },
   headerText: { fontWeight: '700', fontSize: 16 },
-  thumb: { width: 120, height: 120, margin: 4, borderRadius: 6 },
+  row: { flexDirection: 'row', marginBottom: 8 },
+  cell: { flex: 1, marginHorizontal: 4, aspectRatio: 1, borderRadius: 8, overflow: 'hidden' },
+  thumb: { width: '100%', height: '100%' },
 });
-// This is the main entry point for the app, displaying a list of media assets grouped by date.
